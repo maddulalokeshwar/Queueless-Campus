@@ -33,6 +33,7 @@ app.use((req, res, next) => {
   next();
 });
 
+
 //log socket connections (no rooms/auth needed for this scope)
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
@@ -40,7 +41,11 @@ io.on("connection", (socket) => {
     console.log("Client disconnected:", socket.id);
   });
 });
-
+app.get("/", (req, res) => {
+  res.status(200).json({
+    message: "QueueLess Campus Backend is running",
+  });
+});
 //mount routers
 app.use("/auth", authApp);
 app.use("/counter", counterApp);
