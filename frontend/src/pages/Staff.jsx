@@ -2,7 +2,6 @@ import { useEffect, useState, useContext } from "react";
 import { AuthContext } from "../context/AuthContext";
 import api from "../api";
 import { socket } from "../socket";
-import Blobs from "../components/Blobs";
 
 export default function Staff() {
   const { logout } = useContext(AuthContext);
@@ -326,198 +325,20 @@ export default function Staff() {
   // =====================================================
   // UI
   // =====================================================
+  const selected = counters.find(c => c._id === selectedCounter);
 
   return (
-
-    <div className="min-h-screen relative bg-gradient-to-br from-teal-900 via-cyan-900 to-blue-900 p-4">
-
-      <Blobs
-        c1="bg-teal-400"
-        c2="bg-cyan-300"
-        c3="bg-blue-400"
-      />
-
-
-      {/* Logout Button */}
-
-      <button
-        onClick={logout}
-        className="absolute top-5 right-5 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-black/20 backdrop-blur-md border border-white/20 text-white text-sm font-semibold hover:bg-red-500/30 hover:border-red-400/40 transition"
-      >
-
-        <span>↪</span>
-
-        Logout
-
-      </button>
-
-
-      <div className="min-h-screen flex items-center justify-center">
-
-        <div className="w-full max-w-sm bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl shadow-2xl p-8 text-center space-y-6">
-
-
-          {/* Header */}
-
-          <div>
-
-            <div className="text-4xl mb-1">
-              🧑‍💼
-            </div>
-
-            <h1 className="text-2xl font-black text-white">
-              Staff Panel
-            </h1>
-
-          </div>
-
-
-          {/* Counter Selection */}
-
-          <select
-            value={selectedCounter}
-            onChange={(e) =>
-              setSelectedCounter(
-                e.target.value
-              )
-            }
-            className="w-full bg-white/20 text-white border border-white/30 rounded-xl p-3 outline-none"
-          >
-
-            <option
-              value=""
-              className="text-black"
-            >
-              Select Your Counter
-            </option>
-
-
-            {counters.map(
-              (counter) => (
-
-                <option
-                  key={counter._id}
-                  value={counter._id}
-                  className="text-black"
-                >
-                  {counter.name} -{" "}
-                  {counter.service}
-                </option>
-
-              )
-            )}
-
-          </select>
-
-
-          {/* Queue Information */}
-
-          {selectedCounter && (
-
-            <div className="grid grid-cols-2 gap-3">
-
-              <div className="bg-white/10 rounded-2xl py-5 border border-white/20">
-
-                <p className="text-cyan-200 text-xs uppercase tracking-widest">
-                  Now Serving
-                </p>
-
-                <p className="text-5xl font-black text-white">
-                  {current}
-                </p>
-
-              </div>
-
-
-              <div className="bg-white/10 rounded-2xl py-5 border border-white/20">
-
-                <p className="text-cyan-200 text-xs uppercase tracking-widest">
-                  Waiting
-                </p>
-
-                <p className="text-5xl font-black text-white">
-                  {waitingCount}
-                </p>
-
-              </div>
-
-            </div>
-
-          )}
-
-
-          {/* Currently Serving */}
-
-          {serving ? (
-
-            <div className="space-y-3">
-
-              <div className="bg-gradient-to-r from-cyan-400/20 to-blue-400/20 border border-cyan-300/30 rounded-xl py-5 animate-pulse">
-
-                <p className="text-sm text-cyan-200">
-                  Currently Serving
-                </p>
-
-                <p className="text-5xl font-black text-white">
-                  {serving.tokenNo}
-                </p>
-
-                {serving.isPreBooked && (
-
-                  <p className="text-xs text-yellow-200 mt-2 font-semibold">
-                    Pre-Booked Token
-                  </p>
-
-                )}
-
-              </div>
-
-
-              {/* Complete */}
-
-              <button
-                onClick={completeToken}
-                disabled={loading}
-                className="w-full bg-gradient-to-r from-green-400 to-emerald-600 text-white font-bold py-4 rounded-xl shadow-lg disabled:opacity-50"
-              >
-
-                {loading
-                  ? "Completing..."
-                  : "✅ Mark Complete"}
-
-              </button>
-
-            </div>
-
-          ) : (
-
-            /* Call Next */
-
-            <button
-              onClick={callNext}
-              disabled={
-                loading ||
-                !selectedCounter ||
-                waitingCount === 0
-              }
-              className="w-full bg-gradient-to-r from-blue-400 to-cyan-600 text-white font-bold py-4 rounded-xl shadow-lg disabled:opacity-50"
-            >
-
-              {loading
-                ? "Calling..."
-                : waitingCount === 0
-                  ? "No Tokens Waiting"
-                  : "📢 Call Next Token"}
-
-            </button>
-
-          )}
-
+    <div className="app-shell">
+      <header className="topbar"><div className="brand"><div className="brand-mark">Q</div><div><strong>QueueLess</strong><span>Campus</span></div></div><div className="topbar-right"><span className="role-chip">STAFF</span><button onClick={logout} className="ghost-btn">Sign out</button></div></header>
+      <main className="dashboard">
+        <section className="page-heading"><div><span className="eyebrow">STAFF CONSOLE</span><h1>Run your counter smoothly.</h1><p>Monitor the live queue and serve the next student with one click.</p></div><div className="date-chip"><span className="dot" /> Live operations</div></section>
+        <section className="staff-toolbar panel"><div><label className="field-label">Active counter</label><select value={selectedCounter} onChange={e => setSelectedCounter(e.target.value)} className="select-field compact"><option value="">Select your counter</option>{counters.map(c => <option key={c._id} value={c._id}>{c.name} · {c.service}</option>)}</select></div><div className="counter-context">{selected ? <><span className="dot" /><div><b>{selected.service}</b><small>{selected.name}</small></div></> : <span>Select a counter to begin</span>}</div></section>
+        {selectedCounter && <div className="staff-stats"><div className="stat-card"><span>NOW SERVING</span><strong>{current}</strong><small>Current token</small></div><div className="stat-card"><span>WAITING</span><strong>{waitingCount}</strong><small>Students in queue</small></div><div className="stat-card"><span>COUNTER</span><strong>{selected?.name?.replace(/[^0-9]/g, "") || "—"}</strong><small>{selected?.service || "Selected service"}</small></div></div>}
+        <div className="staff-main">
+          <section className="panel serving-panel"><div className="panel-head"><div><span className="eyebrow">SERVICE DESK</span><h2>Currently serving</h2></div>{serving && <span className="status-pill success"><span className="dot" /> Active</span>}</div>{serving ? <><div className="serving-token"><small>TOKEN NUMBER</small><strong>{serving.tokenNo}</strong>{serving.isPreBooked && <span>Pre-booked priority</span>}</div><button onClick={completeToken} disabled={loading} className="primary-btn green-btn">{loading ? "Completing..." : "Mark service complete"}<span>✓</span></button></> : <div className="empty-state"><div className="empty-icon">Q</div><h3>No student is being served</h3><p>{waitingCount ? "The next student is ready when you are." : "There are currently no students waiting."}</p><button onClick={callNext} disabled={loading || waitingCount === 0} className="primary-btn blue-btn">{loading ? "Calling..." : waitingCount ? "Call next token" : "Queue is empty"}<span>→</span></button></div>}</section>
+          <aside className="panel queue-panel"><div className="panel-head"><div><span className="eyebrow">QUEUE FLOW</span><h2>Next up</h2></div><span className="live-dot">Live</span></div><div className="queue-preview"><div className="queue-current"><small>NOW</small><strong>{current || "—"}</strong></div><div className="queue-line"><span></span><span></span><span></span></div><div className="queue-next"><small>WAITING</small><strong>{waitingCount}</strong></div></div><div className="priority-note"><b>Priority-aware queue</b><p>Pre-booked appointments and long-waiting walk-ins are handled by the queue rules automatically.</p></div>{selectedCounter && !serving && waitingCount > 0 && <button onClick={callNext} disabled={loading} className="secondary-btn">Call next student <span>→</span></button>}</aside>
         </div>
-
-      </div>
-
+      </main>
     </div>
-
   );
 }

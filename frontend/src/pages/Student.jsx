@@ -7,7 +7,6 @@ import {
 import api from "../api";
 import { socket } from "../socket";
 import { AuthContext } from "../context/AuthContext";
-import Blobs from "../components/Blobs";
 
 export default function Student() {
 
@@ -479,448 +478,64 @@ export default function Student() {
   // MAIN UI
   // =====================================================
 
+  const selected = counters.find(c => c._id === selectedCounter);
+  const statusLabel = status === "booked" ? "Pre-booked" : status === "serving" ? "Your turn" : status === "near" ? "Almost there" : "In queue";
+
   return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand"><div className="brand-mark">Q</div><div><strong>QueueLess</strong><span>Campus</span></div></div>
+        <div className="topbar-right"><span className="live-dot">Live system</span><button onClick={logout} className="ghost-btn">Sign out</button></div>
+      </header>
 
-    <div className="min-h-screen relative bg-gradient-to-br from-fuchsia-900 via-purple-900 to-indigo-900 p-4">
+      <main className="dashboard student-dashboard">
+        <section className="page-heading">
+          <div><span className="eyebrow">STUDENT PORTAL</span><h1>Skip the line. Keep your time.</h1><p>Join a campus service queue or reserve a convenient slot before you arrive.</p></div>
+          <div className="date-chip"><span className="dot" /> Queue system online</div>
+        </section>
 
-      <Blobs
-        c1="bg-fuchsia-400"
-        c2="bg-yellow-300"
-        c3="bg-purple-400"
-      />
+        {alertMessage && <div className="notice"><span className="notice-icon">i</span><div><strong>Queue update</strong><p>{alertMessage}</p></div><button onClick={() => setAlertMessage("")}>×</button></div>}
 
-
-      {/* LOGOUT */}
-
-      <button
-        onClick={logout}
-        className="fixed top-5 right-5 z-50 flex items-center gap-2 px-4 py-2 rounded-full bg-black/30 backdrop-blur-md border border-white/20 text-white text-sm font-semibold hover:bg-red-500/30 hover:border-red-400/40 transition"
-      >
-
-        <span>↪</span>
-
-        Logout
-
-      </button>
-
-
-      <div className="min-h-screen flex items-center justify-center">
-
-        <div className="w-full max-w-md">
-
-
-          {/* TITLE */}
-
-          <h1 className="text-4xl font-black text-center text-white mb-6">
-
-            🎟️ QueueLess Campus
-
-          </h1>
-
-
-          {/* SMART ALERT */}
-
-          {alertMessage && (
-
-            <div className="mb-4 bg-yellow-400/20 border border-yellow-300/40 backdrop-blur-xl rounded-2xl p-4 text-yellow-100 text-center">
-
-              <p className="font-bold">
-                🔔 Smart Alert
-              </p>
-
-              <p className="text-sm mt-1">
-                {alertMessage}
-              </p>
-
-            </div>
-
-          )}
-
-
-          {/* NO TOKEN */}
-
-          {!token ? (
-
-            <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl shadow-2xl p-6 space-y-5">
-
-
-              {/* MODE SELECTOR */}
-
-              <div className="grid grid-cols-2 gap-3">
-
-                <button
-                  onClick={() =>
-                    setMode("now")
-                  }
-                  className={`py-3 rounded-xl font-bold transition ${
-                    mode === "now"
-                      ? "bg-green-500 text-white"
-                      : "bg-white/10 text-purple-200"
-                  }`}
-                >
-                  🎟️ Take Token
-                </button>
-
-
-                <button
-                  onClick={() =>
-                    setMode("book")
-                  }
-                  className={`py-3 rounded-xl font-bold transition ${
-                    mode === "book"
-                      ? "bg-blue-500 text-white"
-                      : "bg-white/10 text-purple-200"
-                  }`}
-                >
-                  📅 Pre-Book
-                </button>
-
+        {!token ? (
+          <div className="student-grid">
+            <section className="panel action-panel">
+              <div className="panel-head"><div><span className="eyebrow">GET A TOKEN</span><h2>How would you like to join?</h2></div></div>
+              <div className="mode-tabs">
+                <button className={mode === "now" ? "mode-tab active" : "mode-tab"} onClick={() => setMode("now")}><span className="mode-icon green">↗</span><span><b>Walk in now</b><small>Join the live queue</small></span></button>
+                <button className={mode === "book" ? "mode-tab active" : "mode-tab"} onClick={() => setMode("book")}><span className="mode-icon blue">◷</span><span><b>Pre-book</b><small>Reserve a future time</small></span></button>
               </div>
 
-
-              {/* COUNTER */}
-
-              <div>
-
-                <h2 className="text-xl font-bold text-white mb-3">
-
-                  Select a Counter
-
-                </h2>
-
-
-                <select
-                  value={selectedCounter}
-                  onChange={(e) =>
-                    setSelectedCounter(
-                      e.target.value
-                    )
-                  }
-                  className="w-full bg-white/20 text-white border border-white/30 rounded-xl p-3 outline-none"
-                >
-
-                  <option
-                    value=""
-                    className="text-black"
-                  >
-                    Select Counter
-                  </option>
-
-
-                  {counters.map(
-                    (counter) => (
-
-                      <option
-                        key={counter._id}
-                        value={counter._id}
-                        className="text-black"
-                      >
-
-                        {counter.name} -{" "}
-                        {counter.service}
-
-                      </option>
-
-                    )
-                  )}
-
-                </select>
-
-              </div>
-
-
-              {/* PRE-BOOK DATE/TIME */}
-
-              {mode === "book" && (
-
-                <div>
-
-                  <label className="block text-sm text-purple-200 mb-2">
-
-                    Select Date & Time
-
-                  </label>
-
-
-                  <input
-                    type="datetime-local"
-                    value={bookingTime}
-                    min={
-                      new Date(
-                        Date.now() +
-                        60000
-                      )
-                        .toISOString()
-                        .slice(
-                          0,
-                          16
-                        )
-                    }
-                    onChange={(e) =>
-                      setBookingTime(
-                        e.target.value
-                      )
-                    }
-                    className="w-full bg-white/20 text-white border border-white/30 rounded-xl p-3 outline-none"
-                  />
-
-                </div>
-
-              )}
-
-
-              {/* ACTION */}
-
-              {mode === "now" ? (
-
-                <button
-                  onClick={joinQueue}
-                  disabled={
-                    loading ||
-                    !selectedCounter
-                  }
-                  className="w-full bg-gradient-to-r from-green-400 to-emerald-600 text-white font-bold py-4 rounded-xl shadow-lg disabled:opacity-50"
-                >
-
-                  {loading
-                    ? "Getting Token..."
-                    : "🎟️ Get Token Now"}
-
-                </button>
-
-              ) : (
-
-                <button
-                  onClick={preBookToken}
-                  disabled={
-                    loading ||
-                    !selectedCounter ||
-                    !bookingTime
-                  }
-                  className="w-full bg-gradient-to-r from-blue-400 to-indigo-600 text-white font-bold py-4 rounded-xl shadow-lg disabled:opacity-50"
-                >
-
-                  {loading
-                    ? "Booking..."
-                    : "📅 Pre-Book Token"}
-
-                </button>
-
-              )}
-
-            </div>
-
-          ) : (
-
-            /* =================================================
-               ACTIVE TOKEN
-               ================================================= */
-
-            <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl shadow-2xl p-8 text-center space-y-5">
-
-
-              {/* STATUS */}
-
-              <div className="inline-block px-4 py-2 rounded-full bg-blue-400/20 border border-blue-400/40 text-blue-200">
-
-                {status === "booked"
-                  ? "📅 Pre-Booked"
-                  : status === "serving"
-                    ? "🟢 Your Turn!"
-                    : status === "near"
-                      ? "🟠 Almost There"
-                      : "🔵 Waiting"}
-
-              </div>
-
-
-              {/* COUNTER */}
-
-              <div>
-
-                <p className="text-purple-200 text-sm">
-
-                  {counter?.name}
-
-                </p>
-
-                <p className="text-purple-300 text-xs">
-
-                  {counter?.service}
-
-                </p>
-
-              </div>
-
-
-              {/* BOOKING INFORMATION */}
-
-              {token.isPreBooked &&
-                token.bookedForTime && (
-
-                  <div className="bg-blue-500/20 border border-blue-300/30 rounded-xl p-4">
-
-                    <p className="text-xs text-blue-200">
-
-                      BOOKED FOR
-
-                    </p>
-
-                    <p className="text-white font-bold text-lg">
-
-                      {new Date(
-                        token.bookedForTime
-                      ).toLocaleString()}
-
-                    </p>
-
-                  </div>
-
-                )}
-
-
-              {/* TOKEN */}
-
-              <div className="relative w-48 h-48 mx-auto flex flex-col items-center justify-center rounded-full border-[14px] border-purple-400/40">
-
-                <p className="text-6xl font-black text-white">
-
-                  {token.tokenNo}
-
-                </p>
-
-                <p className="text-xs text-purple-200">
-
-                  YOUR TOKEN
-
-                </p>
-
-              </div>
-
-
-              {/* NORMAL QUEUE */}
-
-              {token.status !== "booked" && (
-
-                <>
-
-                  <div className="flex justify-between text-purple-200">
-
-                    <span>
-
-                      Now Serving:{" "}
-
-                      <b className="text-white">
-
-                        {current}
-
-                      </b>
-
-                    </span>
-
-
-                    <span>
-
-                      {position} ahead
-
-                    </span>
-
-                  </div>
-
-
-                  <div className="bg-purple-500/20 border border-white/20 rounded-xl py-4">
-
-                    <p className="text-xs text-purple-200">
-
-                      ESTIMATED WAIT
-
-                    </p>
-
-
-                    <p className="text-white font-black text-4xl">
-
-                      {String(
-                        mins
-                      ).padStart(
-                        2,
-                        "0"
-                      )}
-
-                      :
-
-                      {String(
-                        secs
-                      ).padStart(
-                        2,
-                        "0"
-                      )}
-
-                    </p>
-
-                  </div>
-
-                </>
-
-              )}
-
-
-              {/* SMART ALERT MESSAGE */}
-
-              {status === "near" && (
-
-                <div className="bg-orange-400/20 border border-orange-300/30 rounded-xl p-4">
-
-                  🔔
-
-                  <p className="text-orange-200 font-bold">
-
-                    Your turn is approaching!
-
-                  </p>
-
-                  <p className="text-orange-100 text-sm">
-
-                    Only {position} people are ahead of you.
-
-                  </p>
-
-                </div>
-
-              )}
-
-
-              {status === "serving" && (
-
-                <div className="bg-green-400/20 border border-green-300/30 rounded-xl p-4">
-
-                  🔔
-
-                  <p className="text-green-200 font-bold">
-
-                    Your turn!
-
-                  </p>
-
-                  <p className="text-green-100 text-sm">
-
-                    Please proceed to the counter.
-
-                  </p>
-
-                </div>
-
-              )}
-
-            </div>
-
-          )}
-
-        </div>
-
-      </div>
-
+              <label className="field-label">Choose a service counter</label>
+              <select value={selectedCounter} onChange={e => setSelectedCounter(e.target.value)} className="select-field">
+                <option value="">Select a counter</option>
+                {counters.map(c => <option key={c._id} value={c._id}>{c.name} · {c.service}</option>)}
+              </select>
+
+              {selected && <div className="counter-preview"><div className="counter-avatar">{selected.name?.charAt(0) || "C"}</div><div><b>{selected.name}</b><span>{selected.service}</span></div><div className="counter-status"><span className="dot" /> Active</div></div>}
+
+              {mode === "book" && <><label className="field-label">Preferred date and time</label><input type="datetime-local" value={bookingTime} min={new Date(Date.now()+60000).toISOString().slice(0,16)} onChange={e => setBookingTime(e.target.value)} className="select-field" /></>}
+
+              <button onClick={mode === "now" ? joinQueue : preBookToken} disabled={loading || !selectedCounter || (mode === "book" && !bookingTime)} className={mode === "now" ? "primary-btn green-btn" : "primary-btn blue-btn"}>{loading ? "Processing..." : mode === "now" ? "Get my token" : "Reserve my token"}<span>→</span></button>
+              <p className="micro-copy">You can only have one active token or booking at a time.</p>
+            </section>
+
+            <aside className="panel info-panel">
+              <div className="mini-orb">Q</div><span className="eyebrow">SMART QUEUE</span><h3>Make your wait useful.</h3><p>Track your position in real time and get notified when your turn arrives.</p>
+              <div className="info-list"><div><span>01</span><p><b>Choose a service</b> Select the counter you need.</p></div><div><span>02</span><p><b>Get or reserve</b> Take a live token or book ahead.</p></div><div><span>03</span><p><b>Stay informed</b> Watch your position update automatically.</p></div></div>
+            </aside>
+          </div>
+        ) : (
+          <div className="active-grid">
+            <section className="panel token-panel">
+              <div className="token-top"><div><span className="eyebrow">YOUR QUEUE PASS</span><h2>{counter?.name || "Campus Counter"}</h2><p>{counter?.service || "Service counter"}</p></div><span className={`status-pill ${status === "serving" ? "success" : status === "near" ? "warning" : status === "booked" ? "info" : "neutral"}`}><span className="dot" /> {statusLabel}</span></div>
+              {token.isPreBooked && token.bookedForTime && <div className="booking-banner"><span>◷</span><div><small>RESERVED FOR</small><b>{new Date(token.bookedForTime).toLocaleString()}</b></div></div>}
+              <div className="token-number"><small>TOKEN</small><strong>{token.tokenNo}</strong><span>Keep this number handy</span></div>
+              {token.status !== "booked" && <div className="queue-metrics"><div><small>NOW SERVING</small><strong>{current}</strong></div><div><small>PEOPLE AHEAD</small><strong>{position}</strong></div><div><small>EST. WAIT</small><strong>{String(mins).padStart(2,"0")}:{String(secs).padStart(2,"0")}</strong></div></div>}
+            </section>
+            <aside className="panel status-panel"><span className="eyebrow">LIVE STATUS</span><div className="status-ring"><div><strong>{position}</strong><span>ahead</span></div></div><h3>{status === "serving" ? "It’s your turn" : status === "near" ? "Get ready" : status === "booked" ? "Booking confirmed" : "You’re in line"}</h3><p>{status === "serving" ? "Please proceed to your selected counter." : status === "booked" ? "Your booking will enter the live queue at the scheduled time." : `We’ll keep your queue position updated automatically.`}</p><div className="live-card"><span className="dot" /> Live updates enabled</div></aside>
+          </div>
+        )}
+      </main>
     </div>
-
   );
-
 }
