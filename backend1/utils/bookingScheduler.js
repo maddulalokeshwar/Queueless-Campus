@@ -2,82 +2,136 @@ import { tokenModel } from "../models/Token.js";
 import { counterModel } from "../models/Counter.js";
 import { notificationModel } from "../models/Notification.js";
 
-export const startBookingScheduler = (io) => {
+
+export const startBookingScheduler = (
+  io
+) => {
 
   setInterval(async () => {
 
     try {
 
-      const now = new Date();
+      const now =
+        new Date();
+
 
       const bookings =
         await tokenModel.find({
-          status: "booked",
-          isPreBooked: true,
+          status:
+            "booked",
+
+          isPreBooked:
+            true,
+
           bookedForTime: {
-            $lte: now,
+            $lte:
+              now,
           },
         });
 
 
-      for (const token of bookings) {
+      for (
+        const token of bookings
+      ) {
 
-        token.status = "waiting";
+        /*
+         * Re-check status before updating.
+         *
+         * This prevents duplicate activation
+         * if another request activated the booking
+         * between the find() and save().
+         */
 
-        await token.save();
+        const currentToken =
+          await tokenModel.findOne({
+            _id:
+              token._id,
+
+            status:
+              "booked",
+          });
+
+
+        if (!currentToken) {
+          continue;
+        }
+
+
+        currentToken.status =
+          "waiting";
+
+        await currentToken.save();
 
 
         await notificationModel.create({
-          userId: token.userId,
-          tokenId: token._id,
-          channel: "push",
+          userId:
+            currentToken.userId,
+
+          tokenId:
+            currentToken._id,
+
+          channel:
+            "push",
+
           message:
-            `Your pre-booked token #${token.tokenNo} is now active.`,
+            `Your pre-booked token #${currentToken.tokenNo} is now active.`,
         });
 
 
         const counter =
           await counterModel.findById(
-            token.counterId
+            currentToken.counterId
           );
 
 
-        if (counter && io) {
+        if (
+          counter &&
+          io
+        ) {
 
           const waitingCount =
             await tokenModel.countDocuments({
-              counterId: token.counterId,
-              status: "waiting",
+              counterId:
+                currentToken.counterId,
+
+              status:
+                "waiting",
             });
 
 
-          io.emit("queue:update", {
-            counterId:
-              token.counterId.toString(),
+          io.emit(
+            "queue:update",
+            {
+              counterId:
+                currentToken.counterId.toString(),
 
-            currentTokenNo:
-              counter.currentTokenNo,
+              currentTokenNo:
+                counter.currentTokenNo,
 
-            waitingCount,
+              waitingCount,
 
-            avgServiceTimeSec:
-              counter.avgServiceTimeSec,
-          });
+              avgServiceTimeSec:
+                counter.avgServiceTimeSec,
+            }
+          );
 
 
-          io.emit("booking:activated", {
-            tokenId:
-              token._id.toString(),
+          io.emit(
+            "booking:activated",
+            {
+              tokenId:
+                currentToken._id.toString(),
 
-            userId:
-              token.userId.toString(),
+              userId:
+                currentToken.userId.toString(),
 
-            counterId:
-              token.counterId.toString(),
+              counterId:
+                currentToken.counterId.toString(),
 
-            tokenNo:
-              token.tokenNo,
-          });
+              tokenNo:
+                currentToken.tokenNo,
+            }
+          );
 
         }
 
