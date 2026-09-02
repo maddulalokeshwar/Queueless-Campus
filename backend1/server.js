@@ -16,72 +16,120 @@ config();
 
 const app = exp();
 
+/*
+|--------------------------------------------------------------------------
+| CORS CONFIGURATION
+|--------------------------------------------------------------------------
+*/
+
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN;
 
 const allowedOrigins = [
-  CLIENT_ORIGIN,
   "https://queueless-campus.vercel.app",
-  "https://queueless-campus-32qkpkk5u-maddulalokeshwar5-9107s-projects.vercel.app",
-].filter(Boolean);
+];
 
-console.log("Allowed CORS origins:", allowedOrigins);
+const isAllowedOrigin = (origin) => {
+  // Allow requests without an Origin header
+  // Example: Postman, server-to-server requests
+  if (!origin) {
+    return true;
+  }
 
-// HTTP CORS
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin
-      // such as Postman or server-to-server requests
-      if (!origin) {
-        return callback(null, true);
-      }
+  // Allow main production frontend
+  if (allowedOrigins.includes(origin)) {
+    return true;
+  }
 
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
+  /*
+  |--------------------------------------------------------------------------
+  | Allow Vercel preview/deployment URLs
+  |--------------------------------------------------------------------------
+  |
+  | Vercel creates different URLs for deployments.
+  |
+  | Example:
+  | https://queueless-campus-lvhjesbu3-maddulalokeshwar5-9107s-projects.vercel.app
+  |
+  */
 
+  if (
+    origin.endsWith(".vercel.app") &&
+    origin.includes("queueless-campus")
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (isAllowedOrigin(origin)) {
+      callback(null, true);
+    } else {
       console.log("Blocked CORS origin:", origin);
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
 
-      return callback(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
-  })
-);
+  credentials: true,
+};
+
+/*
+|--------------------------------------------------------------------------
+| Express CORS
+|--------------------------------------------------------------------------
+*/
+
+app.use(cors(corsOptions));
+
+/*
+|--------------------------------------------------------------------------
+| Middleware
+|--------------------------------------------------------------------------
+*/
 
 app.use(exp.json());
 app.use(cookieParser());
 
-// HTTP server
+/*
+|--------------------------------------------------------------------------
+| HTTP SERVER
+|--------------------------------------------------------------------------
+*/
+
 const httpServer = createServer(app);
 
-// Socket.IO
+/*
+|--------------------------------------------------------------------------
+| SOCKET.IO
+|--------------------------------------------------------------------------
+*/
+
 const io = new Server(httpServer, {
   cors: {
-    origin: function (origin, callback) {
-      if (!origin) {
-        return callback(null, true);
-      }
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      console.log("Blocked Socket.IO origin:", origin);
-
-      return callback(new Error("Not allowed by CORS"));
-    },
+    ...corsOptions,
     methods: ["GET", "POST"],
-    credentials: true,
   },
 });
 
-// Attach Socket.IO to requests
+/*
+|--------------------------------------------------------------------------
+| Attach Socket.IO to requests
+|--------------------------------------------------------------------------
+*/
+
 app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
-// Socket connections
+/*
+|--------------------------------------------------------------------------
+| Socket Connections
+|--------------------------------------------------------------------------
+*/
+
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 
@@ -90,24 +138,53 @@ io.on("connection", (socket) => {
   });
 });
 
-// Booking scheduler
+/*
+|--------------------------------------------------------------------------
+| Booking Scheduler
+|--------------------------------------------------------------------------
+*/
+
 startBookingScheduler(io);
 
-// Routes
+/*
+|--------------------------------------------------------------------------
+| Routes
+|--------------------------------------------------------------------------
+*/
+
 app.use("/auth", authApp);
+
 app.use("/counter", counterApp);
+
 app.use("/token", tokenApp);
+
 app.use("/notification", notificationApp);
 
-// Test route
+/*
+|--------------------------------------------------------------------------
+| Test Route
+|--------------------------------------------------------------------------
+*/
+
 app.get("/", (req, res) => {
   res.status(200).json({
     message: "Queueless Campus API is running",
   });
 });
 
-// Connect DB
+/*
+|--------------------------------------------------------------------------
+| Database Connection
+|--------------------------------------------------------------------------
+*/
+
 connectDB();
+
+/*
+|--------------------------------------------------------------------------
+| Start Server
+|--------------------------------------------------------------------------
+*/
 
 const PORT = process.env.PORT || 5000;
 
