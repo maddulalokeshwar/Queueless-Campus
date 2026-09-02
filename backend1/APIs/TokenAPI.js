@@ -9,27 +9,149 @@ export const tokenApp = exp.Router();
 
 
 // =====================================================
+// SETTINGS
+// =====================================================
+
+// A walk-in waiting this long gets priority over
+// pre-booked tokens to prevent starvation.
+
+const WALK_IN_PRIORITY_WAIT_SEC = 10 * 60;
+
+
+// =====================================================
 // QUEUE UPDATE
 // =====================================================
 
 const emitQueueUpdate = async (io, counterId) => {
   if (!io) return;
 
-  const counter = await counterModel.findById(counterId);
+  const counter =
+    await counterModel.findById(counterId);
 
   if (!counter) return;
 
-  const waitingCount = await tokenModel.countDocuments({
-    counterId,
-    status: "waiting",
-  });
+  const waitingCount =
+    await tokenModel.countDocuments({
+      counterId,
+      status: "waiting",
+    });
 
   io.emit("queue:update", {
-    counterId: counterId.toString(),
-    currentTokenNo: counter.currentTokenNo,
+    counterId:
+      counterId.toString(),
+
+    currentTokenNo:
+      counter.currentTokenNo,
+
     waitingCount,
-    avgServiceTimeSec: counter.avgServiceTimeSec,
+
+    avgServiceTimeSec:
+      counter.avgServiceTimeSec,
   });
+};
+
+
+// =====================================================
+// ACTIVATE DUE PRE-BOOKED TOKENS
+// =====================================================
+
+const activateDueBookings = async (
+  io,
+  counterId
+) => {
+
+  const now = new Date();
+
+  const dueBookings =
+    await tokenModel.find({
+      counterId,
+      status: "booked",
+      isPreBooked: true,
+      bookedForTime: {
+        $lte: now,
+      },
+    });
+
+
+  if (dueBookings.length === 0) {
+    return;
+  }
+
+
+  await tokenModel.updateMany(
+    {
+      counterId,
+      status: "booked",
+      isPreBooked: true,
+      bookedForTime: {
+        $lte: now,
+      },
+    },
+    {
+      $set: {
+        status: "waiting",
+      },
+    }
+  );
+
+
+  // -----------------------------------------------
+  // NOTIFICATIONS
+  // -----------------------------------------------
+
+  for (const token of dueBookings) {
+
+    await notificationModel.create({
+      userId:
+        token.userId,
+
+      tokenId:
+        token._id,
+
+      channel:
+        "push",
+
+      message:
+        `Your pre-booked token #${token.tokenNo} is now active. Please proceed to the counter.`,
+    });
+
+  }
+
+
+  // -----------------------------------------------
+  // SOCKET EVENT
+  // -----------------------------------------------
+
+  if (io) {
+
+    for (const token of dueBookings) {
+
+      io.emit(
+        "booking:activated",
+        {
+          tokenId:
+            token._id.toString(),
+
+          userId:
+            token.userId.toString(),
+
+          counterId:
+            token.counterId.toString(),
+
+          tokenNo:
+            token.tokenNo,
+        }
+      );
+
+    }
+
+  }
+
+
+  await emitQueueUpdate(
+    io,
+    counterId
+  );
 };
 
 
@@ -37,37 +159,76 @@ const emitQueueUpdate = async (io, counterId) => {
 // GET QUEUE INFORMATION
 // =====================================================
 
-tokenApp.get("/queue/:counterId", async (req, res) => {
-  try {
-    const { counterId } = req.params;
+tokenApp.get(
+  "/queue/:counterId",
+  async (req, res) => {
 
-    const counter = await counterModel.findById(counterId);
+    try {
 
-    if (!counter) {
-      return res.status(404).json({
-        message: "Counter not found",
+      const { counterId } =
+        req.params;
+
+
+      const counter =
+        await counterModel.findById(
+          counterId
+        );
+
+
+      if (!counter) {
+
+        return res.status(404).json({
+          message:
+            "Counter not found",
+        });
+
+      }
+
+
+      // Activate bookings whose time has arrived
+
+      await activateDueBookings(
+        req.io,
+        counterId
+      );
+
+
+      const waitingCount =
+        await tokenModel.countDocuments({
+          counterId,
+          status: "waiting",
+        });
+
+
+      res.status(200).json({
+
+        message:
+          "Queue fetched",
+
+        counterId:
+          counter._id,
+
+        currentTokenNo:
+          counter.currentTokenNo,
+
+        waitingCount,
+
+        avgServiceTimeSec:
+          counter.avgServiceTimeSec,
+
       });
+
+    } catch (err) {
+
+      res.status(500).json({
+        message:
+          err.message,
+      });
+
     }
 
-    const waitingCount = await tokenModel.countDocuments({
-      counterId,
-      status: "waiting",
-    });
-
-    res.status(200).json({
-      message: "Queue fetched",
-      counterId: counter._id,
-      currentTokenNo: counter.currentTokenNo,
-      waitingCount,
-      avgServiceTimeSec: counter.avgServiceTimeSec,
-    });
-
-  } catch (err) {
-    res.status(500).json({
-      message: err.message,
-    });
   }
-});
+);
 
 
 // =====================================================
@@ -78,37 +239,29 @@ tokenApp.post(
   "/",
   authMiddleware,
   requireRole("student"),
+
   async (req, res) => {
+
     try {
+
       const {
         counterId,
         isPreBooked,
         bookedForTime,
       } = req.body;
 
+
+      // -----------------------------------------------
+      // CHECK COUNTER ID
+      // -----------------------------------------------
+
       if (!counterId) {
-        return res.status(400).json({
-          message: "Please select a counter",
-        });
-      }
 
-
-      // -----------------------------------------------
-      // CHECK ACTIVE TOKEN
-      // -----------------------------------------------
-
-      const existingToken = await tokenModel.findOne({
-        userId: req.user.id,
-        status: {
-          $in: ["booked", "waiting", "serving"],
-        },
-      });
-
-      if (existingToken) {
         return res.status(400).json({
           message:
-            "You already have an active token or booking",
+            "Please select a counter",
         });
+
       }
 
 
@@ -116,12 +269,48 @@ tokenApp.post(
       // CHECK COUNTER
       // -----------------------------------------------
 
-      const counter = await counterModel.findById(counterId);
+      const counter =
+        await counterModel.findById(
+          counterId
+        );
+
 
       if (!counter) {
+
         return res.status(404).json({
-          message: "Counter not found",
+          message:
+            "Counter not found",
         });
+
+      }
+
+
+      // -----------------------------------------------
+      // CHECK ACTIVE TOKEN
+      // -----------------------------------------------
+
+      const existingToken =
+        await tokenModel.findOne({
+          userId:
+            req.user.id,
+
+          status: {
+            $in: [
+              "booked",
+              "waiting",
+              "serving",
+            ],
+          },
+        });
+
+
+      if (existingToken) {
+
+        return res.status(400).json({
+          message:
+            "You already have an active token or booking",
+        });
+
       }
 
 
@@ -132,73 +321,148 @@ tokenApp.post(
       if (isPreBooked === true) {
 
         if (!bookedForTime) {
+
           return res.status(400).json({
             message:
               "Please select a booking date and time",
           });
+
         }
 
-        const bookingTime = new Date(bookedForTime);
 
-        if (isNaN(bookingTime.getTime())) {
+        const bookingTime =
+          new Date(bookedForTime);
+
+
+        if (
+          isNaN(
+            bookingTime.getTime()
+          )
+        ) {
+
           return res.status(400).json({
-            message: "Invalid booking date and time",
+            message:
+              "Invalid booking date and time",
           });
+
         }
 
-        if (bookingTime <= new Date()) {
+
+        if (
+          bookingTime <= new Date()
+        ) {
+
           return res.status(400).json({
             message:
               "Booking time must be in the future",
           });
+
         }
 
 
-        // Give the booking a token number
+        // ---------------------------------------------
+        // GENERATE TOKEN NUMBER
+        // ---------------------------------------------
+
         counter.lastTokenNo += 1;
 
         await counter.save();
 
 
-        const newToken = await tokenModel.create({
-          tokenNo: counter.lastTokenNo,
-          userId: req.user.id,
-          counterId,
-          status: "booked",
-          isPreBooked: true,
-          bookedForTime: bookingTime,
-        });
+        // ---------------------------------------------
+        // CREATE PRE-BOOKED TOKEN
+        // ---------------------------------------------
 
+        const newToken =
+          await tokenModel.create({
+
+            tokenNo:
+              counter.lastTokenNo,
+
+            userId:
+              req.user.id,
+
+            counterId,
+
+            status:
+              "booked",
+
+            isPreBooked:
+              true,
+
+            bookedForTime:
+              bookingTime,
+
+          });
+
+
+        // ---------------------------------------------
+        // BOOKING NOTIFICATION
+        // ---------------------------------------------
 
         await notificationModel.create({
-          userId: req.user.id,
-          tokenId: newToken._id,
-          channel: "push",
+
+          userId:
+            req.user.id,
+
+          tokenId:
+            newToken._id,
+
+          channel:
+            "push",
+
           message:
             `Your token #${newToken.tokenNo} has been pre-booked for ${bookingTime.toLocaleString()}`,
+
         });
 
 
+        // ---------------------------------------------
+        // SOCKET EVENT
+        // ---------------------------------------------
+
         if (req.io) {
-          req.io.emit("booking:created", {
-            tokenId: newToken._id.toString(),
-            userId: req.user.id.toString(),
-            counterId: counterId.toString(),
-            tokenNo: newToken.tokenNo,
-            bookedForTime: bookingTime,
-          });
+
+          req.io.emit(
+            "booking:created",
+            {
+
+              tokenId:
+                newToken._id.toString(),
+
+              userId:
+                req.user.id.toString(),
+
+              counterId:
+                counterId.toString(),
+
+              tokenNo:
+                newToken.tokenNo,
+
+              bookedForTime:
+                bookingTime,
+
+            }
+          );
+
         }
 
 
         return res.status(201).json({
-          message: "Token pre-booked successfully",
-          payload: newToken,
+
+          message:
+            "Token pre-booked successfully",
+
+          payload:
+            newToken,
+
         });
+
       }
 
 
       // =================================================
-      // NORMAL TOKEN
+      // NORMAL WALK-IN TOKEN
       // =================================================
 
       counter.lastTokenNo += 1;
@@ -206,15 +470,32 @@ tokenApp.post(
       await counter.save();
 
 
-      const newToken = await tokenModel.create({
-        tokenNo: counter.lastTokenNo,
-        userId: req.user.id,
-        counterId,
-        status: "waiting",
-        isPreBooked: false,
-        bookedForTime: null,
-      });
+      const newToken =
+        await tokenModel.create({
 
+          tokenNo:
+            counter.lastTokenNo,
+
+          userId:
+            req.user.id,
+
+          counterId,
+
+          status:
+            "waiting",
+
+          isPreBooked:
+            false,
+
+          bookedForTime:
+            null,
+
+        });
+
+
+      // -----------------------------------------------
+      // QUEUE UPDATE
+      // -----------------------------------------------
 
       await emitQueueUpdate(
         req.io,
@@ -223,15 +504,24 @@ tokenApp.post(
 
 
       res.status(201).json({
-        message: "Token generated",
-        payload: newToken,
+
+        message:
+          "Token generated",
+
+        payload:
+          newToken,
+
       });
 
     } catch (err) {
+
       res.status(500).json({
-        message: err.message,
+        message:
+          err.message,
       });
+
     }
+
   }
 );
 
@@ -244,48 +534,253 @@ tokenApp.get(
   "/my",
   authMiddleware,
   requireRole("student"),
+
   async (req, res) => {
+
     try {
 
-      const activeToken = await tokenModel
-        .findOne({
-          userId: req.user.id,
-          status: {
-            $in: ["booked", "waiting", "serving"],
-          },
-        })
-        .populate("counterId");
+      let activeToken =
+        await tokenModel
+          .findOne({
+
+            userId:
+              req.user.id,
+
+            status: {
+              $in: [
+                "booked",
+                "waiting",
+                "serving",
+              ],
+            },
+
+          })
+          .populate("counterId");
 
 
       if (!activeToken) {
+
         return res.status(404).json({
-          message: "No active token found",
+          message:
+            "No active token found",
         });
+
       }
 
 
-      const counter = activeToken.counterId;
+      // =================================================
+      // ACTIVATE DUE BOOKING
+      // =================================================
+
+      if (
+        activeToken.status ===
+          "booked" &&
+
+        activeToken.isPreBooked &&
+
+        activeToken.bookedForTime <=
+          new Date()
+      ) {
+
+        activeToken.status =
+          "waiting";
+
+        await activeToken.save();
+
+      }
+
+
+      const counter =
+        activeToken.counterId;
+
 
       let position = 0;
 
 
-      if (activeToken.status === "waiting") {
+      // =================================================
+      // WAITING POSITION
+      // =================================================
 
-        position = await tokenModel.countDocuments({
-          counterId: counter._id,
-          status: "waiting",
-          tokenNo: {
-            $lt: activeToken.tokenNo,
-          },
-        });
+      if (
+        activeToken.status ===
+        "waiting"
+      ) {
+
+        const now =
+          new Date();
+
+
+        // =================================================
+        // PRE-BOOKED TOKEN POSITION
+        // =================================================
+
+        if (
+          activeToken.isPreBooked
+        ) {
+
+          // Count earlier eligible
+          // pre-booked tokens.
+
+          const earlierPreBooked =
+            await tokenModel.countDocuments({
+
+              counterId:
+                counter._id,
+
+              status:
+                "waiting",
+
+              isPreBooked:
+                true,
+
+              bookedForTime: {
+                $lt:
+                  activeToken.bookedForTime,
+              },
+
+            });
+
+
+          // Count walk-ins that have already
+          // waited long enough to receive
+          // priority.
+
+          const priorityWalkIns =
+            await tokenModel.countDocuments({
+
+              counterId:
+                counter._id,
+
+              status:
+                "waiting",
+
+              isPreBooked:
+                false,
+
+              createdAt: {
+                $lte:
+                  new Date(
+                    now.getTime() -
+                    WALK_IN_PRIORITY_WAIT_SEC *
+                    1000
+                  ),
+              },
+
+            });
+
+
+          position =
+            earlierPreBooked +
+            priorityWalkIns;
+
+        }
+
+
+        // =================================================
+        // WALK-IN TOKEN POSITION
+        // =================================================
+
+        else {
+
+          // ---------------------------------------------
+          // WALK-INS WAITING LONGER THAN THIS TOKEN
+          // ---------------------------------------------
+
+          const earlierWalkIns =
+            await tokenModel.countDocuments({
+
+              counterId:
+                counter._id,
+
+              status:
+                "waiting",
+
+              isPreBooked:
+                false,
+
+              createdAt: {
+                $lt:
+                  activeToken.createdAt,
+              },
+
+            });
+
+
+          // ---------------------------------------------
+          // PRE-BOOKED TOKENS THAT ARE CURRENTLY
+          // ELIGIBLE FOR PRIORITY
+          // ---------------------------------------------
+
+          const eligiblePreBooked =
+            await tokenModel.countDocuments({
+
+              counterId:
+                counter._id,
+
+              status:
+                "waiting",
+
+              isPreBooked:
+                true,
+
+              bookedForTime: {
+                $lte:
+                  now,
+              },
+
+            });
+
+
+          // ---------------------------------------------
+          // ONLY COUNT PRE-BOOKED TOKENS THAT
+          // WOULD ACTUALLY BE SERVED BEFORE THIS
+          // WALK-IN.
+          //
+          // If this walk-in has already waited
+          // 10 minutes, it receives priority.
+          // ---------------------------------------------
+
+          const waitingTimeSec =
+            Math.floor(
+              (
+                now -
+                activeToken.createdAt
+              ) / 1000
+            );
+
+
+          if (
+            waitingTimeSec <
+            WALK_IN_PRIORITY_WAIT_SEC
+          ) {
+
+            position =
+              earlierWalkIns +
+              eligiblePreBooked;
+
+          } else {
+
+            position =
+              earlierWalkIns;
+
+          }
+
+        }
 
       }
 
 
+      // =================================================
+      // ESTIMATED WAIT TIME
+      // =================================================
+
       let estimatedWaitSec = 0;
 
 
-      if (activeToken.status === "waiting") {
+      if (
+        activeToken.status ===
+        "waiting"
+      ) {
 
         estimatedWaitSec =
           position *
@@ -294,21 +789,36 @@ tokenApp.get(
       }
 
 
+      // =================================================
+      // RESPONSE
+      // =================================================
+
       res.status(200).json({
-        message: "Active token fetched",
+
+        message:
+          "Active token fetched",
 
         payload: {
+
           ...activeToken.toObject(),
+
           position,
+
           estimatedWaitSec,
+
         },
+
       });
 
     } catch (err) {
+
       res.status(500).json({
-        message: err.message,
+        message:
+          err.message,
       });
+
     }
+
   }
 );
 
@@ -321,35 +831,55 @@ tokenApp.get(
   "/serving/:counterId",
   authMiddleware,
   requireRole("staff"),
+
   async (req, res) => {
+
     try {
 
-      const { counterId } = req.params;
+      const { counterId } =
+        req.params;
+
 
       const servingToken =
         await tokenModel.findOne({
+
           counterId,
-          status: "serving",
+
+          status:
+            "serving",
+
         });
 
 
       if (!servingToken) {
+
         return res.status(404).json({
-          message: "No serving token",
+          message:
+            "No serving token",
         });
+
       }
 
 
       res.status(200).json({
-        message: "Serving token fetched",
-        payload: servingToken,
+
+        message:
+          "Serving token fetched",
+
+        payload:
+          servingToken,
+
       });
 
     } catch (err) {
+
       res.status(500).json({
-        message: err.message,
+        message:
+          err.message,
       });
+
     }
+
   }
 );
 
@@ -362,67 +892,213 @@ tokenApp.patch(
   "/call-next",
   authMiddleware,
   requireRole("staff"),
+
   async (req, res) => {
+
     try {
 
-      const { counterId } = req.body;
+      const { counterId } =
+        req.body;
+
 
       if (!counterId) {
+
         return res.status(400).json({
-          message: "Please select a counter",
+          message:
+            "Please select a counter",
         });
+
       }
 
 
+      // -----------------------------------------------
+      // CHECK COUNTER
+      // -----------------------------------------------
+
       const counter =
-        await counterModel.findById(counterId);
+        await counterModel.findById(
+          counterId
+        );
 
 
       if (!counter) {
+
         return res.status(404).json({
-          message: "Counter not found",
+          message:
+            "Counter not found",
         });
+
       }
 
 
+      // -----------------------------------------------
+      // CHECK CURRENT SERVING TOKEN
+      // -----------------------------------------------
+
       const alreadyServing =
         await tokenModel.findOne({
+
           counterId,
-          status: "serving",
+
+          status:
+            "serving",
+
         });
 
 
       if (alreadyServing) {
+
         return res.status(400).json({
           message:
             "Complete the current token first",
         });
+
       }
 
 
-      const nextToken =
+      // -----------------------------------------------
+      // ACTIVATE DUE BOOKINGS
+      // -----------------------------------------------
+
+      await activateDueBookings(
+        req.io,
+        counterId
+      );
+
+
+      const now =
+        new Date();
+
+
+      const priorityWalkInCutoff =
+        new Date(
+          now.getTime() -
+          WALK_IN_PRIORITY_WAIT_SEC *
+          1000
+        );
+
+
+      // =================================================
+      // PRIORITY 1
+      // LONG-WAITING WALK-IN
+      // =================================================
+
+      const longWaitingWalkIn =
         await tokenModel
           .findOne({
+
             counterId,
-            status: "waiting",
+
+            status:
+              "waiting",
+
+            isPreBooked:
+              false,
+
+            createdAt: {
+              $lte:
+                priorityWalkInCutoff,
+            },
+
           })
           .sort({
-            tokenNo: 1,
+            createdAt: 1,
           });
 
 
+      let nextToken =
+        longWaitingWalkIn;
+
+
+      // =================================================
+      // PRIORITY 2
+      // ELIGIBLE PRE-BOOKED TOKEN
+      // =================================================
+
       if (!nextToken) {
-        return res.status(404).json({
-          message: "No waiting tokens",
-        });
+
+        nextToken =
+          await tokenModel
+            .findOne({
+
+              counterId,
+
+              status:
+                "waiting",
+
+              isPreBooked:
+                true,
+
+              bookedForTime: {
+                $lte:
+                  now,
+              },
+
+            })
+            .sort({
+              bookedForTime: 1,
+            });
+
       }
 
 
-      nextToken.status = "serving";
-      nextToken.calledAt = new Date();
+      // =================================================
+      // PRIORITY 3
+      // NORMAL WALK-IN
+      // =================================================
+
+      if (!nextToken) {
+
+        nextToken =
+          await tokenModel
+            .findOne({
+
+              counterId,
+
+              status:
+                "waiting",
+
+              isPreBooked:
+                false,
+
+            })
+            .sort({
+              createdAt: 1,
+            });
+
+      }
+
+
+      // -----------------------------------------------
+      // NO TOKENS
+      // -----------------------------------------------
+
+      if (!nextToken) {
+
+        return res.status(404).json({
+          message:
+            "No waiting tokens",
+        });
+
+      }
+
+
+      // -----------------------------------------------
+      // START SERVING
+      // -----------------------------------------------
+
+      nextToken.status =
+        "serving";
+
+      nextToken.calledAt =
+        new Date();
 
       await nextToken.save();
 
+
+      // -----------------------------------------------
+      // UPDATE COUNTER
+      // -----------------------------------------------
 
       counter.currentTokenNo =
         nextToken.tokenNo;
@@ -435,13 +1111,25 @@ tokenApp.patch(
       // -----------------------------------------------
 
       await notificationModel.create({
-        userId: nextToken.userId,
-        tokenId: nextToken._id,
-        channel: "push",
+
+        userId:
+          nextToken.userId,
+
+        tokenId:
+          nextToken._id,
+
+        channel:
+          "push",
+
         message:
           `Your token #${nextToken.tokenNo} is now being served`,
+
       });
 
+
+      // -----------------------------------------------
+      // QUEUE UPDATE
+      // -----------------------------------------------
 
       await emitQueueUpdate(
         req.io,
@@ -449,35 +1137,53 @@ tokenApp.patch(
       );
 
 
+      // -----------------------------------------------
+      // SOCKET EVENT
+      // -----------------------------------------------
+
       if (req.io) {
 
-        req.io.emit("token:called", {
-          tokenId:
-            nextToken._id.toString(),
+        req.io.emit(
+          "token:called",
+          {
 
-          userId:
-            nextToken.userId.toString(),
+            tokenId:
+              nextToken._id.toString(),
 
-          tokenNo:
-            nextToken.tokenNo,
+            userId:
+              nextToken.userId.toString(),
 
-          counterId:
-            counterId.toString(),
-        });
+            tokenNo:
+              nextToken.tokenNo,
+
+            counterId:
+              counterId.toString(),
+
+          }
+        );
 
       }
 
 
       res.status(200).json({
-        message: "Next token called",
-        payload: nextToken,
+
+        message:
+          "Next token called",
+
+        payload:
+          nextToken,
+
       });
 
     } catch (err) {
+
       res.status(500).json({
-        message: err.message,
+        message:
+          err.message,
       });
+
     }
+
   }
 );
 
@@ -490,43 +1196,76 @@ tokenApp.patch(
   "/:id/complete",
   authMiddleware,
   requireRole("staff"),
+
   async (req, res) => {
+
     try {
 
-      const { id } = req.params;
+      const { id } =
+        req.params;
 
+
+      // -----------------------------------------------
+      // FIND SERVING TOKEN
+      // -----------------------------------------------
 
       const tokenDoc =
         await tokenModel.findOne({
-          _id: id,
-          status: "serving",
+
+          _id:
+            id,
+
+          status:
+            "serving",
+
         });
 
 
       if (!tokenDoc) {
+
         return res.status(404).json({
           message:
             "Serving token not found",
         });
+
       }
 
+
+      // -----------------------------------------------
+      // COMPLETION TIME
+      // -----------------------------------------------
 
       const completedAt =
         new Date();
 
 
+      // -----------------------------------------------
+      // SERVICE TIME
+      // -----------------------------------------------
+
       const serviceTimeSec =
         Math.max(
+
           1,
+
           Math.round(
-            (completedAt -
-              tokenDoc.calledAt) /
-              1000
+
+            (
+              completedAt -
+              tokenDoc.calledAt
+            ) / 1000
+
           )
+
         );
 
 
-      tokenDoc.status = "completed";
+      // -----------------------------------------------
+      // UPDATE TOKEN
+      // -----------------------------------------------
+
+      tokenDoc.status =
+        "completed";
 
       tokenDoc.completedAt =
         completedAt;
@@ -538,6 +1277,10 @@ tokenApp.patch(
       await tokenDoc.save();
 
 
+      // -----------------------------------------------
+      // UPDATE COUNTER
+      // -----------------------------------------------
+
       const counter =
         await counterModel.findById(
           tokenDoc.counterId
@@ -548,20 +1291,31 @@ tokenApp.patch(
 
         counter.avgServiceTimeSec =
           Math.round(
+
             0.7 *
-              counter.avgServiceTimeSec +
+            counter.avgServiceTimeSec +
+
             0.3 *
-              serviceTimeSec
+            serviceTimeSec
+
           );
+
 
         await counter.save();
 
       }
 
 
+      // -----------------------------------------------
+      // QUEUE UPDATE
+      // -----------------------------------------------
+
       await emitQueueUpdate(
+
         req.io,
+
         tokenDoc.counterId.toString()
+
       );
 
 
@@ -571,30 +1325,44 @@ tokenApp.patch(
 
       if (req.io) {
 
-        req.io.emit("token:completed", {
-          tokenId:
-            tokenDoc._id.toString(),
+        req.io.emit(
+          "token:completed",
+          {
 
-          userId:
-            tokenDoc.userId.toString(),
+            tokenId:
+              tokenDoc._id.toString(),
 
-          counterId:
-            tokenDoc.counterId.toString(),
-        });
+            userId:
+              tokenDoc.userId.toString(),
+
+            counterId:
+              tokenDoc.counterId.toString(),
+
+          }
+        );
 
       }
 
 
       res.status(200).json({
-        message: "Token completed",
-        payload: tokenDoc,
+
+        message:
+          "Token completed",
+
+        payload:
+          tokenDoc,
+
       });
 
     } catch (err) {
+
       res.status(500).json({
-        message: err.message,
+        message:
+          err.message,
       });
+
     }
+
   }
 );
 
