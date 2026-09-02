@@ -18,12 +18,32 @@ const app = exp();
 
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN;
 
-console.log("CLIENT_ORIGIN:", CLIENT_ORIGIN);
+const allowedOrigins = [
+  CLIENT_ORIGIN,
+  "https://queueless-campus.vercel.app",
+  "https://queueless-campus-32qkpkk5u-maddulalokeshwar5-9107s-projects.vercel.app",
+].filter(Boolean);
+
+console.log("Allowed CORS origins:", allowedOrigins);
 
 // HTTP CORS
 app.use(
   cors({
-    origin: CLIENT_ORIGIN,
+    origin: function (origin, callback) {
+      // Allow requests with no origin
+      // such as Postman or server-to-server requests
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.log("Blocked CORS origin:", origin);
+
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   })
 );
@@ -37,7 +57,19 @@ const httpServer = createServer(app);
 // Socket.IO
 const io = new Server(httpServer, {
   cors: {
-    origin: CLIENT_ORIGIN,
+    origin: function (origin, callback) {
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.log("Blocked Socket.IO origin:", origin);
+
+      return callback(new Error("Not allowed by CORS"));
+    },
     methods: ["GET", "POST"],
     credentials: true,
   },
